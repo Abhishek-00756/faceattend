@@ -1,235 +1,238 @@
-// Storage Service - IndexedDB wrapper for persistent data storage
+import { db } from './firebaseClient'
+import { collection, doc, getDoc, getDocs, setDoc, deleteDoc, query, where, updateDoc } from 'firebase/firestore'
 
+// Keep DB_NAME around if there are any rogue references, though not used anymore
 const DB_NAME = 'FaceAttendDB'
-const DB_VERSION = 1
 
-// Database stores
-const STORES = {
-    USERS: 'users',
-    STUDENTS: 'students',
-    CLASSES: 'classes',
-    ATTENDANCE: 'attendance',
-    SESSIONS: 'sessions',
-    FACE_DESCRIPTORS: 'faceDescriptors'
-}
-
-let db = null
-
-// Initialize the database
 export async function initDB() {
-    return new Promise((resolve, reject) => {
-        const request = indexedDB.open(DB_NAME, DB_VERSION)
-
-        request.onerror = () => reject(request.error)
-        request.onsuccess = () => {
-            db = request.result
-            resolve(db)
-        }
-
-        request.onupgradeneeded = (event) => {
-            const database = event.target.result
-
-            // Users store (teachers and students login info)
-            if (!database.objectStoreNames.contains(STORES.USERS)) {
-                const usersStore = database.createObjectStore(STORES.USERS, { keyPath: 'id' })
-                usersStore.createIndex('email', 'email', { unique: true })
-                usersStore.createIndex('role', 'role', { unique: false })
-            }
-
-            // Students store (student profiles)
-            if (!database.objectStoreNames.contains(STORES.STUDENTS)) {
-                const studentsStore = database.createObjectStore(STORES.STUDENTS, { keyPath: 'id' })
-                studentsStore.createIndex('rollNo', 'rollNo', { unique: true })
-                studentsStore.createIndex('classId', 'classId', { unique: false })
-                studentsStore.createIndex('teacherId', 'teacherId', { unique: false })
-            }
-
-            // Classes store
-            if (!database.objectStoreNames.contains(STORES.CLASSES)) {
-                const classesStore = database.createObjectStore(STORES.CLASSES, { keyPath: 'id' })
-                classesStore.createIndex('teacherId', 'teacherId', { unique: false })
-            }
-
-            // Attendance records store
-            if (!database.objectStoreNames.contains(STORES.ATTENDANCE)) {
-                const attendanceStore = database.createObjectStore(STORES.ATTENDANCE, { keyPath: 'id' })
-                attendanceStore.createIndex('studentId', 'studentId', { unique: false })
-                attendanceStore.createIndex('sessionId', 'sessionId', { unique: false })
-                attendanceStore.createIndex('date', 'date', { unique: false })
-            }
-
-            // Attendance sessions store
-            if (!database.objectStoreNames.contains(STORES.SESSIONS)) {
-                const sessionsStore = database.createObjectStore(STORES.SESSIONS, { keyPath: 'id' })
-                sessionsStore.createIndex('teacherId', 'teacherId', { unique: false })
-                sessionsStore.createIndex('classId', 'classId', { unique: false })
-                sessionsStore.createIndex('status', 'status', { unique: false })
-            }
-
-            // Face descriptors store
-            if (!database.objectStoreNames.contains(STORES.FACE_DESCRIPTORS)) {
-                const faceStore = database.createObjectStore(STORES.FACE_DESCRIPTORS, { keyPath: 'studentId' })
-            }
-        }
-    })
-}
-
-// Get database instance
-async function getDB() {
-    if (!db) {
-        await initDB()
-    }
-    return db
-}
-
-// Generic CRUD operations
-async function add(storeName, data) {
-    const database = await getDB()
-    return new Promise((resolve, reject) => {
-        const transaction = database.transaction(storeName, 'readwrite')
-        const store = transaction.objectStore(storeName)
-        const request = store.add(data)
-        request.onsuccess = () => resolve(data)
-        request.onerror = () => reject(request.error)
-    })
-}
-
-async function get(storeName, id) {
-    const database = await getDB()
-    return new Promise((resolve, reject) => {
-        const transaction = database.transaction(storeName, 'readonly')
-        const store = transaction.objectStore(storeName)
-        const request = store.get(id)
-        request.onsuccess = () => resolve(request.result)
-        request.onerror = () => reject(request.error)
-    })
-}
-
-async function getAll(storeName) {
-    const database = await getDB()
-    return new Promise((resolve, reject) => {
-        const transaction = database.transaction(storeName, 'readonly')
-        const store = transaction.objectStore(storeName)
-        const request = store.getAll()
-        request.onsuccess = () => resolve(request.result)
-        request.onerror = () => reject(request.error)
-    })
-}
-
-async function getByIndex(storeName, indexName, value) {
-    const database = await getDB()
-    return new Promise((resolve, reject) => {
-        const transaction = database.transaction(storeName, 'readonly')
-        const store = transaction.objectStore(storeName)
-        const index = store.index(indexName)
-        const request = index.getAll(value)
-        request.onsuccess = () => resolve(request.result)
-        request.onerror = () => reject(request.error)
-    })
-}
-
-async function getOneByIndex(storeName, indexName, value) {
-    const database = await getDB()
-    return new Promise((resolve, reject) => {
-        const transaction = database.transaction(storeName, 'readonly')
-        const store = transaction.objectStore(storeName)
-        const index = store.index(indexName)
-        const request = index.get(value)
-        request.onsuccess = () => resolve(request.result)
-        request.onerror = () => reject(request.error)
-    })
-}
-
-async function update(storeName, data) {
-    const database = await getDB()
-    return new Promise((resolve, reject) => {
-        const transaction = database.transaction(storeName, 'readwrite')
-        const store = transaction.objectStore(storeName)
-        const request = store.put(data)
-        request.onsuccess = () => resolve(data)
-        request.onerror = () => reject(request.error)
-    })
-}
-
-async function remove(storeName, id) {
-    const database = await getDB()
-    return new Promise((resolve, reject) => {
-        const transaction = database.transaction(storeName, 'readwrite')
-        const store = transaction.objectStore(storeName)
-        const request = store.delete(id)
-        request.onsuccess = () => resolve(true)
-        request.onerror = () => reject(request.error)
-    })
+    return Promise.resolve(true)
 }
 
 // User operations
 export const userStore = {
-    add: (user) => add(STORES.USERS, user),
-    get: (id) => get(STORES.USERS, id),
-    getByEmail: (email) => getOneByIndex(STORES.USERS, 'email', email),
-    getAll: () => getAll(STORES.USERS),
-    update: (user) => update(STORES.USERS, user),
-    delete: (id) => remove(STORES.USERS, id)
+    add: async (user) => {
+        await setDoc(doc(db, 'users', user.id), user)
+        return user
+    },
+    get: async (id) => {
+        const snap = await getDoc(doc(db, 'users', id))
+        return snap.exists() ? snap.data() : null
+    },
+    getByEmail: async (email) => {
+        const q = query(collection(db, 'users'), where('email', '==', email))
+        const snapshot = await getDocs(q)
+        return snapshot.empty ? null : snapshot.docs[0].data()
+    },
+    getAll: async () => {
+        const snapshot = await getDocs(collection(db, 'users'))
+        return snapshot.docs.map(doc => doc.data())
+    },
+    update: async (user) => {
+        await updateDoc(doc(db, 'users', user.id), user)
+        return user
+    },
+    delete: async (id) => {
+        await deleteDoc(doc(db, 'users', id))
+        return true
+    }
 }
 
 // Student operations
 export const studentStore = {
-    add: (student) => add(STORES.STUDENTS, student),
-    get: (id) => get(STORES.STUDENTS, id),
-    getByRollNo: (rollNo) => getOneByIndex(STORES.STUDENTS, 'rollNo', rollNo),
-    getByClass: (classId) => getByIndex(STORES.STUDENTS, 'classId', classId),
-    getByTeacher: (teacherId) => getByIndex(STORES.STUDENTS, 'teacherId', teacherId),
-    getAll: () => getAll(STORES.STUDENTS),
-    update: (student) => update(STORES.STUDENTS, student),
-    delete: (id) => remove(STORES.STUDENTS, id)
+    add: async (student) => {
+        await setDoc(doc(db, 'students', student.id), student)
+        return student
+    },
+    get: async (id) => {
+        const snap = await getDoc(doc(db, 'students', id))
+        return snap.exists() ? snap.data() : null
+    },
+    getByRollNo: async (rollNo) => {
+        const q = query(collection(db, 'students'), where('rollNo', '==', rollNo))
+        const snapshot = await getDocs(q)
+        return snapshot.empty ? null : snapshot.docs[0].data()
+    },
+    getByClass: async (classId) => {
+        const q = query(collection(db, 'students'), where('classId', '==', classId))
+        const snapshot = await getDocs(q)
+        return snapshot.docs.map(doc => doc.data())
+    },
+    getByTeacher: async (teacherId) => {
+        const q = query(collection(db, 'students'), where('teacherId', '==', teacherId))
+        const snapshot = await getDocs(q)
+        return snapshot.docs.map(doc => doc.data())
+    },
+    getAll: async () => {
+        const snapshot = await getDocs(collection(db, 'students'))
+        return snapshot.docs.map(doc => doc.data())
+    },
+    update: async (student) => {
+        await updateDoc(doc(db, 'students', student.id), student)
+        return student
+    },
+    delete: async (id) => {
+        await deleteDoc(doc(db, 'students', id))
+        return true
+    }
 }
 
 // Class operations
 export const classStore = {
-    add: (classData) => add(STORES.CLASSES, classData),
-    get: (id) => get(STORES.CLASSES, id),
-    getByTeacher: (teacherId) => getByIndex(STORES.CLASSES, 'teacherId', teacherId),
-    getAll: () => getAll(STORES.CLASSES),
-    update: (classData) => update(STORES.CLASSES, classData),
-    delete: (id) => remove(STORES.CLASSES, id)
+    add: async (classData) => {
+        await setDoc(doc(db, 'classes', classData.id), classData)
+        return classData
+    },
+    get: async (id) => {
+        const snap = await getDoc(doc(db, 'classes', id))
+        return snap.exists() ? snap.data() : null
+    },
+    getByTeacher: async (teacherId) => {
+        const q = query(collection(db, 'classes'), where('teacherId', '==', teacherId))
+        const snapshot = await getDocs(q)
+        return snapshot.docs.map(doc => doc.data())
+    },
+    getAll: async () => {
+        const snapshot = await getDocs(collection(db, 'classes'))
+        return snapshot.docs.map(doc => doc.data())
+    },
+    update: async (classData) => {
+        await updateDoc(doc(db, 'classes', classData.id), classData)
+        return classData
+    },
+    delete: async (id) => {
+        await deleteDoc(doc(db, 'classes', id))
+        return true
+    }
 }
 
 // Attendance operations
 export const attendanceStore = {
-    add: (record) => add(STORES.ATTENDANCE, record),
-    get: (id) => get(STORES.ATTENDANCE, id),
-    getByStudent: (studentId) => getByIndex(STORES.ATTENDANCE, 'studentId', studentId),
-    getBySession: (sessionId) => getByIndex(STORES.ATTENDANCE, 'sessionId', sessionId),
-    getByDate: (date) => getByIndex(STORES.ATTENDANCE, 'date', date),
-    getAll: () => getAll(STORES.ATTENDANCE),
-    update: (record) => update(STORES.ATTENDANCE, record),
-    delete: (id) => remove(STORES.ATTENDANCE, id)
+    add: async (record) => {
+        await setDoc(doc(db, 'attendance', record.id), record)
+        return record
+    },
+    get: async (id) => {
+        const snap = await getDoc(doc(db, 'attendance', id))
+        return snap.exists() ? snap.data() : null
+    },
+    getByStudent: async (studentId) => {
+        const q = query(collection(db, 'attendance'), where('studentId', '==', studentId))
+        const snapshot = await getDocs(q)
+        return snapshot.docs.map(doc => doc.data())
+    },
+    getBySession: async (sessionId) => {
+        const q = query(collection(db, 'attendance'), where('sessionId', '==', sessionId))
+        const snapshot = await getDocs(q)
+        return snapshot.docs.map(doc => doc.data())
+    },
+    getByDate: async (date) => {
+        const q = query(collection(db, 'attendance'), where('date', '==', date))
+        const snapshot = await getDocs(q)
+        return snapshot.docs.map(doc => doc.data())
+    },
+    getAll: async () => {
+        const snapshot = await getDocs(collection(db, 'attendance'))
+        return snapshot.docs.map(doc => doc.data())
+    },
+    update: async (record) => {
+        await updateDoc(doc(db, 'attendance', record.id), record)
+        return record
+    },
+    delete: async (id) => {
+        await deleteDoc(doc(db, 'attendance', id))
+        return true
+    }
 }
 
 // Session operations
 export const sessionStore = {
-    add: (session) => add(STORES.SESSIONS, session),
-    get: (id) => get(STORES.SESSIONS, id),
-    getByTeacher: (teacherId) => getByIndex(STORES.SESSIONS, 'teacherId', teacherId),
-    getByClass: (classId) => getByIndex(STORES.SESSIONS, 'classId', classId),
-    getActive: () => getByIndex(STORES.SESSIONS, 'status', 'active'),
-    getAll: () => getAll(STORES.SESSIONS),
-    update: (session) => update(STORES.SESSIONS, session),
-    delete: (id) => remove(STORES.SESSIONS, id)
+    add: async (session) => {
+        await setDoc(doc(db, 'sessions', session.id), session)
+        return session
+    },
+    get: async (id) => {
+        const snap = await getDoc(doc(db, 'sessions', id))
+        return snap.exists() ? snap.data() : null
+    },
+    getByTeacher: async (teacherId) => {
+        const q = query(collection(db, 'sessions'), where('teacherId', '==', teacherId))
+        const snapshot = await getDocs(q)
+        return snapshot.docs.map(doc => doc.data())
+    },
+    getByClass: async (classId) => {
+        const q = query(collection(db, 'sessions'), where('classId', '==', classId))
+        const snapshot = await getDocs(q)
+        return snapshot.docs.map(doc => doc.data())
+    },
+    getActive: async () => {
+        const q = query(collection(db, 'sessions'), where('status', '==', 'active'))
+        const snapshot = await getDocs(q)
+        return snapshot.docs.map(doc => doc.data())
+    },
+    getAll: async () => {
+        const snapshot = await getDocs(collection(db, 'sessions'))
+        return snapshot.docs.map(doc => doc.data())
+    },
+    update: async (session) => {
+        await updateDoc(doc(db, 'sessions', session.id), session)
+        return session
+    },
+    delete: async (id) => {
+        await deleteDoc(doc(db, 'sessions', id))
+        return true
+    }
 }
 
 // Face descriptor operations
 export const faceStore = {
-    add: (data) => add(STORES.FACE_DESCRIPTORS, data),
-    get: (studentId) => get(STORES.FACE_DESCRIPTORS, studentId),
-    getAll: () => getAll(STORES.FACE_DESCRIPTORS),
-    update: (data) => update(STORES.FACE_DESCRIPTORS, data),
-    delete: (studentId) => remove(STORES.FACE_DESCRIPTORS, studentId)
+    add: async (faceData) => {
+        const payload = {
+            studentId: faceData.studentId,
+            descriptor: Array.from(faceData.descriptor)
+        }
+        await setDoc(doc(db, 'face_descriptors', faceData.studentId), payload)
+        return faceData
+    },
+    get: async (studentId) => {
+        const snap = await getDoc(doc(db, 'face_descriptors', studentId))
+        if (snap.exists() && snap.data().descriptor) {
+            return {
+                studentId: snap.data().studentId,
+                descriptor: new Float32Array(snap.data().descriptor)
+            }
+        }
+        return null
+    },
+    getAll: async () => {
+        const snapshot = await getDocs(collection(db, 'face_descriptors'))
+        return snapshot.docs.map(doc => ({
+             studentId: doc.data().studentId,
+             descriptor: new Float32Array(doc.data().descriptor)
+        }))
+    },
+    update: async (faceData) => {
+        const payload = {
+            studentId: faceData.studentId,
+            descriptor: Array.from(faceData.descriptor)
+        }
+        await updateDoc(doc(db, 'face_descriptors', faceData.studentId), payload)
+        return faceData
+    },
+    delete: async (studentId) => {
+        await deleteDoc(doc(db, 'face_descriptors', studentId))
+        return true
+    }
 }
 
 // Generate unique ID
 export function generateId() {
-    return Date.now().toString(36) + Math.random().toString(36).substring(2)
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+        return crypto.randomUUID()
+    }
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+    });
 }
 
 // Get today's date string (YYYY-MM-DD)
@@ -239,6 +242,7 @@ export function getTodayDate() {
 
 // Format date for display
 export function formatDate(dateString) {
+    if (!dateString) return ''
     return new Date(dateString).toLocaleDateString('en-US', {
         year: 'numeric',
         month: 'short',
@@ -248,6 +252,7 @@ export function formatDate(dateString) {
 
 // Format time for display
 export function formatTime(dateString) {
+    if (!dateString) return ''
     return new Date(dateString).toLocaleTimeString('en-US', {
         hour: '2-digit',
         minute: '2-digit'
