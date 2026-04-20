@@ -4,12 +4,14 @@ import Layout from '../common/Layout'
 import { useAuth } from '../../context/AuthContext'
 import { useToast } from '../../context/ToastContext'
 import { useAttendance } from '../../context/AttendanceContext'
-import { loadModels, detectFace, matchFace, checkLiveness } from '../../services/faceRecognition'
+import { loadModels, detectFace, matchFace, detectBlinks } from '../../services/faceRecognition'
+import { verifyFingerprint } from '../../services/webauthn'
 import { isWithinCampus, getCampusLocation } from '../../services/geolocation'
 
 function FaceScanner() {
     const navigate = useNavigate()
     const { user } = useAuth()
+    const { getCredentialId } = useAuth()
     const { success, error: showError, warning, info } = useToast()
     const { activeSession, markAttendance, hasMarkedToday, refresh } = useAttendance()
 
@@ -17,13 +19,15 @@ function FaceScanner() {
     const canvasRef = useRef(null)
     const streamRef = useRef(null)
 
-    const [status, setStatus] = useState('loading') // loading, ready, scanning, success, error, no-session, out-of-range
+    const [status, setStatus] = useState('loading') // loading, ready, blinking, scanning, success, error, no-session, out-of-range
     const [message, setMessage] = useState('Initializing camera...')
     const [modelsReady, setModelsReady] = useState(false)
     const [faceDetected, setFaceDetected] = useState(false)
     const [scanProgress, setScanProgress] = useState(0)
     const [attemptCount, setAttemptCount] = useState(0)
     const [locationInfo, setLocationInfo] = useState(null)
+    const [blinkCount, setBlinkCount] = useState(0)
+    const [blinkTimeLeft, setBlinkTimeLeft] = useState(7)
 
     // Check for active session
     useEffect(() => {
@@ -168,27 +172,53 @@ function FaceScanner() {
     const handleScan = async () => {
         if (!faceDetected || !modelsReady || status !== 'ready') return
 
+        // --- Step 1: Blink Challenge ---
+        setStatus('blinking')
+        setBlinkCount(0)
+        setBlinkTimeLeft(7)
+        setMessage('👁️ Please blink naturally 2 times...')
+
+        const REQUIRED_BLINKS = 2
+        const BLINK_DURATION_MS = 7000
+
+        // Countdown timer
+        const timerInterval = setInterval(() => {
+            setBlinkTimeLeft(prev => {
+                if (prev <= 1) { clearInterval(timerInterval); return 0 }
+                return prev - 1
+            })
+        }, 1000)
+
+        let detectedBlinks = 0
+        try {
+            detectedBlinks = await detectBlinks(
+                videoRef.current,
+                BLINK_DURATION_MS,
+                (count) => setBlinkCount(count)
+            )
+        } catch (e) {
+            detectedBlinks = 0
+        }
+        clearInterval(timerInterval)
+
+        if (detectedBlinks < REQUIRED_BLINKS) {
+            setStatus('ready')
+            setBlinkCount(0)
+            setMessage(`Liveness check failed — only detected ${detectedBlinks} blink(s). Please blink naturally and try again.`)
+            showError('Anti-spoofing check failed. Please blink naturally.')
+            return
+        }
+
+        // --- Step 2: Face Match ---
         setStatus('scanning')
-        setMessage('Scanning your face...')
+        setMessage('Verifying identity...')
         setScanProgress(20)
 
         try {
             const video = videoRef.current
 
-            // Check liveness
-            setScanProgress(40)
-            const livenessCheck = await checkLiveness(video)
-
-            if (!livenessCheck.isLive) {
-                throw new Error('Liveness check failed. Please make sure you are a real person and try again.')
-            }
-
-            // Match face
-            setScanProgress(70)
-            setMessage('Verifying identity...')
-
+            setScanProgress(60)
             const matchResult = await matchFace(video)
-
             setScanProgress(90)
 
             if (!matchResult.matched) {
@@ -210,6 +240,25 @@ function FaceScanner() {
                 throw new Error('Face does not match your registered profile.')
             }
 
+            // --- Step 3: Fingerprint Verification ---
+            setScanProgress(95)
+            setMessage('👆 Please verify your fingerprint...')
+
+            const credentialId = await getCredentialId(user.id)
+            if (credentialId) {
+                try {
+                    await verifyFingerprint(credentialId)
+                } catch (fpErr) {
+                    if (fpErr.name === 'NotAllowedError') {
+                        throw new Error('Fingerprint verification was cancelled. Please try again.')
+                    }
+                    throw new Error('Fingerprint verification failed. Please use your registered finger.')
+                }
+            } else {
+                // No fingerprint registered — allow but warn
+                warning('⚠️ No fingerprint registered. Visit your Profile to set it up for better security.')
+            }
+
             setScanProgress(100)
 
             // Mark attendance
@@ -222,10 +271,7 @@ function FaceScanner() {
             stopCamera()
             refresh()
 
-            // Redirect after delay
-            setTimeout(() => {
-                navigate('/student')
-            }, 3000)
+            setTimeout(() => { navigate('/student') }, 3000)
 
         } catch (error) {
             console.error('Scan error:', error)
@@ -352,13 +398,16 @@ function FaceScanner() {
                     <>
                         {/* Status Message */}
                         <div className="text-center mb-lg">
-                            <span className={`badge ${status === 'loading' ? 'badge-warning' :
+                            <span className={`badge ${
+                                status === 'loading' ? 'badge-warning' :
+                                status === 'blinking' ? 'badge-primary' :
                                 status === 'scanning' ? 'badge-primary' :
-                                    faceDetected ? 'badge-success' : 'badge-warning'
-                                }`}>
+                                faceDetected ? 'badge-success' : 'badge-warning'
+                            }`}>
                                 {status === 'loading' && '⏳ Loading...'}
-                                {status === 'ready' && (faceDetected ? '✓ Face Detected' : '⏳ Looking for face...')}
-                                {status === 'scanning' && '🔍 Scanning...'}
+                                {status === 'ready' && (faceDetected ? '✓ Face Detected — Ready' : '⏳ Looking for face...')}
+                                {status === 'blinking' && `👁️ Blink ${blinkCount}/${2} detected — ${blinkTimeLeft}s left`}
+                                {status === 'scanning' && '🔍 Verifying...'}
                             </span>
                         </div>
 
@@ -429,6 +478,25 @@ function FaceScanner() {
                             {message}
                         </p>
 
+                        {/* Blink Challenge UI */}
+                        {status === 'blinking' && (
+                            <div className="text-center mt-lg p-md" style={{
+                                background: 'rgba(102,126,234,0.1)',
+                                borderRadius: 'var(--radius-lg)',
+                                border: '2px solid var(--primary-color)'
+                            }}>
+                                <div style={{ fontSize: '2.5rem', marginBottom: '0.5rem' }}>
+                                    {blinkCount >= 2 ? '✅' : blinkCount === 1 ? '😉' : '👀'}
+                                </div>
+                                <p className="font-semibold" style={{ margin: 0 }}>
+                                    Blink naturally — {blinkCount} of 2 detected
+                                </p>
+                                <p className="text-sm text-muted" style={{ margin: '0.25rem 0 0' }}>
+                                    Time remaining: {blinkTimeLeft}s
+                                </p>
+                            </div>
+                        )}
+
                         {/* Scan Button */}
                         <div className="flex justify-center mt-lg">
                             {status === 'ready' && (
@@ -442,10 +510,10 @@ function FaceScanner() {
                                 </button>
                             )}
 
-                            {status === 'scanning' && (
+                            {(status === 'scanning' || status === 'blinking') && (
                                 <button className="btn btn-primary btn-lg" disabled>
                                     <div className="spinner sm" style={{ marginRight: '0.5rem' }}></div>
-                                    Verifying...
+                                    {status === 'blinking' ? 'Checking liveness...' : 'Verifying...'}
                                 </button>
                             )}
                         </div>
@@ -483,7 +551,7 @@ function FaceScanner() {
                 )}
 
                 {/* Instructions */}
-                {(status === 'ready' || status === 'scanning') && (
+                {(status === 'ready' || status === 'scanning' || status === 'blinking') && (
                     <div
                         className="mt-lg p-md"
                         style={{
@@ -496,7 +564,7 @@ function FaceScanner() {
                             <li>Ensure good lighting on your face</li>
                             <li>Remove glasses if having issues</li>
                             <li>Look directly at the camera</li>
-                            <li>Keep a neutral expression</li>
+                            <li>Blink naturally when prompted 👁️</li>
                         </ul>
                     </div>
                 )}

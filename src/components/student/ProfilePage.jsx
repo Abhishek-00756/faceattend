@@ -5,14 +5,18 @@ import { useAuth } from '../../context/AuthContext'
 import { useToast } from '../../context/ToastContext'
 import { studentStore } from '../../services/storage'
 import { formatDate } from '../../utils/helpers'
+import { registerFingerprint, isWebAuthnSupported, isBiometricAvailable } from '../../services/webauthn'
 
 function ProfilePage() {
-    const { user, updateProfile, changePassword, logout } = useAuth()
+    const { user, updateProfile, changePassword, logout, saveCredentialId, getCredentialId } = useAuth()
     const { success, error: showError } = useToast()
 
     const [student, setStudent] = useState(null)
     const [isLoading, setIsLoading] = useState(true)
     const [showPasswordModal, setShowPasswordModal] = useState(false)
+    const [fingerprintRegistered, setFingerprintRegistered] = useState(false)
+    const [fingerprintLoading, setFingerprintLoading] = useState(false)
+    const [biometricSupported, setBiometricSupported] = useState(true)
 
     const [passwordData, setPasswordData] = useState({
         currentPassword: '',
@@ -24,6 +28,12 @@ function ProfilePage() {
     useEffect(() => {
         if (user?.studentId) {
             loadStudentProfile()
+        }
+        // Check biometric support
+        isBiometricAvailable().then(available => setBiometricSupported(available))
+        // Check if fingerprint already registered
+        if (user?.id) {
+            getCredentialId(user.id).then(id => setFingerprintRegistered(!!id))
         }
     }, [user])
 
@@ -78,6 +88,28 @@ function ProfilePage() {
             setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' })
         } catch (error) {
             showError(error.message)
+        }
+    }
+
+    const handleRegisterFingerprint = async () => {
+        if (!isWebAuthnSupported()) {
+            showError('Your browser does not support biometric authentication.')
+            return
+        }
+        setFingerprintLoading(true)
+        try {
+            const credentialId = await registerFingerprint(user.id, user.name || user.email)
+            await saveCredentialId(credentialId)
+            setFingerprintRegistered(true)
+            success('Fingerprint registered! 👍 Your attendance will now require fingerprint verification.')
+        } catch (err) {
+            if (err.name === 'NotAllowedError') {
+                showError('Fingerprint registration was cancelled. Please try again.')
+            } else {
+                showError(err.message || 'Failed to register fingerprint.')
+            }
+        } finally {
+            setFingerprintLoading(false)
         }
     }
 
@@ -172,6 +204,25 @@ function ProfilePage() {
                         >
                             <span>🔐</span>
                             Change Password
+                        </button>
+
+                        {/* Fingerprint Registration */}
+                        <button
+                            className={`btn btn-lg w-full ${fingerprintRegistered ? 'btn-success' : 'btn-primary'}`}
+                            style={{ justifyContent: 'flex-start' }}
+                            onClick={handleRegisterFingerprint}
+                            disabled={fingerprintLoading || !biometricSupported}
+                        >
+                            {fingerprintLoading ? (
+                                <><div className="spinner sm" style={{ marginRight: '0.5rem' }}></div> Registering...</>
+                            ) : fingerprintRegistered ? (
+                                <><span>✅</span> Fingerprint Registered</>
+                            ) : (
+                                <><span>👆</span> Register Fingerprint</>
+                            )}
+                            {!biometricSupported && (
+                                <span className="badge badge-warning" style={{ marginLeft: 'auto' }}>Not Supported</span>
+                            )}
                         </button>
 
                         {/* Theme Toggle Placeholder */}

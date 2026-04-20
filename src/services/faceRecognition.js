@@ -154,26 +154,95 @@ export async function matchFace(imageElement, threshold = 0.6) {
     }
 }
 
-// Check if face is real (basic anti-spoofing based on expressions)
+// --- Blink Detection (Eye Aspect Ratio) ---
+// The 68 face landmarks include eye points:
+// Left eye: 36-41, Right eye: 42-47
+// EAR = (|p2-p6| + |p3-p5|) / (2 * |p1-p4|)
+// When eye is open, EAR ~ 0.25+; when closed (blink), EAR drops below 0.21
+
+function getEAR(eyePoints) {
+    const dist = (a, b) => Math.sqrt(Math.pow(a._x - b._x, 2) + Math.pow(a._y - b._y, 2))
+    const vertical1 = dist(eyePoints[1], eyePoints[5])
+    const vertical2 = dist(eyePoints[2], eyePoints[4])
+    const horizontal = dist(eyePoints[0], eyePoints[3])
+    return (vertical1 + vertical2) / (2.0 * horizontal)
+}
+
+function getEARFromLandmarks(landmarks) {
+    const positions = landmarks.positions
+    const leftEye = positions.slice(36, 42)
+    const rightEye = positions.slice(42, 48)
+    return (getEAR(leftEye) + getEAR(rightEye)) / 2
+}
+
+// Monitor for blinks over a given duration. Returns number of blinks detected.
+export async function detectBlinks(videoElement, durationMs = 5000, onBlinkDetected = null) {
+    const EAR_THRESHOLD = 0.22  // below this = eye closed
+    const MIN_BLINK_FRAMES = 2  // must be closed for at least 2 frames
+    const FRAME_INTERVAL_MS = 80 // check every 80ms
+
+    let blinkCount = 0
+    let closedFrames = 0
+    let eyeWasClosed = false
+    const startTime = Date.now()
+
+    return new Promise((resolve) => {
+        const checkFrame = async () => {
+            if (Date.now() - startTime > durationMs) {
+                resolve(blinkCount)
+                return
+            }
+
+            try {
+                const detection = await faceapi
+                    .detectSingleFace(videoElement)
+                    .withFaceLandmarks()
+
+                if (detection) {
+                    const ear = getEARFromLandmarks(detection.landmarks)
+
+                    if (ear < EAR_THRESHOLD) {
+                        closedFrames++
+                        eyeWasClosed = true
+                    } else {
+                        if (eyeWasClosed && closedFrames >= MIN_BLINK_FRAMES) {
+                            blinkCount++
+                            if (onBlinkDetected) onBlinkDetected(blinkCount)
+                        }
+                        closedFrames = 0
+                        eyeWasClosed = false
+                    }
+                }
+            } catch (e) {
+                // Ignore frame errors
+            }
+
+            setTimeout(checkFrame, FRAME_INTERVAL_MS)
+        }
+
+        setTimeout(checkFrame, FRAME_INTERVAL_MS)
+    })
+}
+
+// Legacy liveness check wrapper (kept for compatibility, now uses EAR)
 export async function checkLiveness(imageElement) {
     try {
-        const detection = await detectFace(imageElement)
+        const detection = await faceapi
+            .detectSingleFace(imageElement)
+            .withFaceLandmarks()
 
         if (!detection) {
             return { isLive: false, reason: 'NO_FACE' }
         }
 
-        // Check face expressions for liveness hints
-        const expressions = detection.expressions
-        const hasExpression = Object.values(expressions).some(v => v > 0.1)
-
-        // Basic checks (in production, use more sophisticated methods)
-        const hasVariation = expressions.neutral < 0.95
+        const ear = getEARFromLandmarks(detection.landmarks)
+        // A flat photo usually has EAR values outside the normal range
+        const isReasonable = ear > 0.15 && ear < 0.45
 
         return {
-            isLive: hasExpression,
-            expressions,
-            reason: hasExpression ? 'PASSED' : 'NO_MOVEMENT'
+            isLive: isReasonable,
+            ear,
+            reason: isReasonable ? 'PASSED' : 'SUSPICIOUS_EAR'
         }
     } catch (error) {
         return { isLive: false, reason: 'ERROR', message: error.message }

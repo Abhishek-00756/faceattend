@@ -2,6 +2,8 @@ import { createContext, useContext, useState, useEffect, useCallback } from 'rea
 import { userStore, initDB, generateId } from '../services/storage'
 import { hashPassword } from '../utils/helpers'
 import { STORAGE_KEYS, ROLES } from '../utils/constants'
+import { db } from '../services/firebaseClient'
+import { doc, updateDoc, getDoc } from 'firebase/firestore'
 
 const AuthContext = createContext(null)
 
@@ -217,6 +219,18 @@ export function AuthProvider({ children }) {
         }
     }, [user])
 
+    // Save fingerprint credential ID to Firebase for this user
+    const saveCredentialId = useCallback(async (credentialId) => {
+        if (!user) return
+        await updateDoc(doc(db, 'users', user.id), { credentialId })
+    }, [user])
+
+    // Get fingerprint credential ID from Firebase for a given userId
+    const getCredentialId = useCallback(async (userId) => {
+        const snap = await getDoc(doc(db, 'users', userId))
+        return snap.exists() ? (snap.data().credentialId || null) : null
+    }, [])
+
     // Clear error
     const clearError = useCallback(() => {
         setError(null)
@@ -233,6 +247,8 @@ export function AuthProvider({ children }) {
         updateProfile,
         changePassword,
         clearError,
+        saveCredentialId,
+        getCredentialId,
         isAuthenticated: !!user,
         isTeacher: user?.role === ROLES.TEACHER,
         isStudent: user?.role === ROLES.STUDENT
