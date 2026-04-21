@@ -135,9 +135,23 @@ function FaceScanner() {
 
         try {
             const video = videoRef.current
+            let matchResult = null
+            const MAX_ATTEMPTS = 4 // Try up to 4 frames for better accuracy
 
-            setScanProgress(60)
-            const matchResult = await matchFace(video)
+            for (let i = 0; i < MAX_ATTEMPTS; i++) {
+                setScanProgress(30 + (i * 15))
+                matchResult = await matchFace(video)
+                
+                if (matchResult.matched || matchResult.reason === 'NO_REGISTERED_FACES') {
+                    break
+                }
+                
+                // Wait briefly for camera to stabilize before trying next frame
+                if (i < MAX_ATTEMPTS - 1) {
+                    await new Promise(res => setTimeout(res, 400))
+                }
+            }
+
             setScanProgress(90)
 
             if (!matchResult.matched) {
