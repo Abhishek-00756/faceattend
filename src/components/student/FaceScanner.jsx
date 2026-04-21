@@ -137,6 +137,7 @@ function FaceScanner() {
 
         try {
             const video = videoRef.current
+            const canvas = canvasRef.current
             let matchResult = null
             const MAX_ATTEMPTS = 8 // Try up to 8 frames across 4 seconds
 
@@ -145,8 +146,17 @@ function FaceScanner() {
 
             for (let i = 0; i < MAX_ATTEMPTS; i++) {
                 setScanProgress(20 + (i * 10))
-                // Pass threshold 0.65 (slightly lenient) since we follow up with fingerprint Auth
-                matchResult = await matchFace(video, 0.65)
+                
+                // Draw current video frame to hidden canvas to bypass WebGL/video caching issues in face-api
+                if (canvas && video.videoWidth > 0) {
+                    canvas.width = video.videoWidth
+                    canvas.height = video.videoHeight
+                    const ctx = canvas.getContext('2d', { willReadFrequently: true })
+                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+                }
+
+                // Pass the static canvas image snapshot instead of live video stream
+                matchResult = await matchFace(canvas || video, 0.65)
                 
                 if (matchResult.matched || matchResult.reason === 'NO_REGISTERED_FACES') {
                     break
