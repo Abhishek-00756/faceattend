@@ -136,19 +136,20 @@ function FaceScanner() {
         try {
             const video = videoRef.current
             let matchResult = null
-            const MAX_ATTEMPTS = 4 // Try up to 4 frames for better accuracy
+            const MAX_ATTEMPTS = 8 // Try up to 8 frames across 4 seconds
 
             for (let i = 0; i < MAX_ATTEMPTS; i++) {
-                setScanProgress(30 + (i * 15))
-                matchResult = await matchFace(video)
+                setScanProgress(20 + (i * 10))
+                // Pass threshold 0.65 (slightly lenient) since we follow up with fingerprint Auth
+                matchResult = await matchFace(video, 0.65)
                 
                 if (matchResult.matched || matchResult.reason === 'NO_REGISTERED_FACES') {
                     break
                 }
                 
-                // Wait briefly for camera to stabilize before trying next frame
+                // Wait 500ms before next frame attempt
                 if (i < MAX_ATTEMPTS - 1) {
-                    await new Promise(res => setTimeout(res, 400))
+                    await new Promise(res => setTimeout(res, 500))
                 }
             }
 
