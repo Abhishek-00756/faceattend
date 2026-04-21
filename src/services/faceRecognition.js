@@ -119,8 +119,8 @@ export async function matchFace(imageElement, threshold = 0.6) {
             return { matched: false, reason: 'NO_FACE_DETECTED' }
         }
 
-        // Load registered faces if not cached
-        if (!labeledDescriptors) {
+        // Load registered faces if not cached or if cache is empty
+        if (!labeledDescriptors || labeledDescriptors.length === 0) {
             labeledDescriptors = await loadRegisteredFaces()
         }
 

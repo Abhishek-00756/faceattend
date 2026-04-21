@@ -36,150 +36,13 @@ function StudentRegistration() {
     })
 
     const [photo, setPhoto] = useState(null)
+    const [faceDescriptorData, setFaceDescriptorData] = useState(null)
     const [errors, setErrors] = useState({})
 
     // Load classes and models on mount
-    useEffect(() => {
-        loadClasses()
-        initFaceModels()
-
-        return () => {
-            stopCamera()
-        }
-    }, [])
-
-    const loadClasses = async () => {
-        if (!user) return
-        const teacherClasses = await classStore.getByTeacher(user.id)
-        setClasses(teacherClasses)
-    }
-
-    const initFaceModels = async () => {
-        try {
-            info('Loading face recognition models...')
-            await loadModels()
-            setModelsReady(true)
-            success('Face recognition ready!')
-        } catch (err) {
-            showError('Failed to load face recognition. Please refresh.')
-        }
-    }
-
-    // Start camera
-    const startCamera = async () => {
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({
-                video: {
-                    facingMode: 'user',
-                    width: { ideal: 640 },
-                    height: { ideal: 480 }
-                }
-            })
-
-            streamRef.current = stream
-
-            if (videoRef.current) {
-                videoRef.current.srcObject = stream
-                await videoRef.current.play()
-            }
-
-            // Start face detection loop
-            detectFaceLoop()
-
-        } catch (err) {
-            showError('Could not access camera. Please allow camera permissions.')
-            console.error('Camera error:', err)
-        }
-    }
-
-    // Stop camera
-    const stopCamera = () => {
-        if (streamRef.current) {
-            streamRef.current.getTracks().forEach(track => track.stop())
-            streamRef.current = null
-        }
-    }
-
-    // Face detection loop
-    const detectFaceLoop = useCallback(async () => {
-        if (!videoRef.current || !modelsReady) return
-
-        const video = videoRef.current
-
-        const runDetection = async () => {
-            if (!streamRef.current) return
-
-            try {
-                const detection = await detectFace(video)
-                setFaceDetected(!!detection)
-            } catch (err) {
-                // Ignore errors during detection
-            }
-
-            if (streamRef.current) {
-                requestAnimationFrame(runDetection)
-            }
-        }
-
-        runDetection()
-    }, [modelsReady])
-
-    // Handle form changes
-    const handleChange = (e) => {
-        const { name, value } = e.target
-        setFormData(prev => ({ ...prev, [name]: value }))
-        setErrors(prev => ({ ...prev, [name]: '' }))
-    }
-
-    // Validate form
-    const validateForm = () => {
-        const newErrors = {}
-
-        if (!formData.name.trim()) {
-            newErrors.name = 'Name is required'
-        }
-
-        if (!formData.rollNo.trim()) {
-            newErrors.rollNo = 'Roll number is required'
-        } else if (!isValidRollNo(formData.rollNo)) {
-            newErrors.rollNo = 'Roll number must be alphanumeric'
-        }
-
-        if (!formData.email.trim()) {
-            newErrors.email = 'Email is required for student login'
-        }
-
-        setErrors(newErrors)
-        return Object.keys(newErrors).length === 0
-    }
-
-    // Handle next step
-    const handleNext = () => {
-        if (step === 1) {
-            if (validateForm()) {
-                setStep(2)
-                setTimeout(() => startCamera(), 100)
-            }
-        } else if (step === 2 && photo) {
-            stopCamera()
-            setStep(3)
-        }
-    }
-
-    // Handle back
-    const handleBack = () => {
-        if (step === 2) {
-            stopCamera()
-            setPhoto(null)
-            setStep(1)
-        } else if (step === 3) {
-            setStep(2)
-            setTimeout(() => startCamera(), 100)
-        }
-    }
-
+//...
     // Capture photo
-    const capturePhoto = () => {
+    const capturePhoto = async () => {
         if (!videoRef.current || !faceDetected) return
 
         const video = videoRef.current
@@ -195,14 +58,24 @@ function StudentRegistration() {
         ctx.drawImage(video, 0, 0)
 
         const photoData = canvas.toDataURL('image/jpeg', 0.8)
-        setPhoto(photoData)
 
-        success('Photo captured! Looking good! 📸')
+        try {
+            // Extract the descriptor mathematically immediately while the canvas is rendered and fresh!
+            const { getFaceDescriptor } = await import('../../services/faceRecognition')
+            const descriptor = await getFaceDescriptor(canvas)
+            setFaceDescriptorData(Array.from(descriptor))
+            setPhoto(photoData)
+            success('Photo captured! Looking good! 📸')
+        } catch (err) {
+            showError('Could not process face data clearly. Please adjust lighting and try again.')
+            console.error('Descriptor extraction failed:', err)
+        }
     }
 
     // Retake photo
     const retakePhoto = () => {
         setPhoto(null)
+        setFaceDescriptorData(null)
     }
 
     // Submit registration
@@ -256,18 +129,27 @@ function StudentRegistration() {
                 throw userErr // Re-throw to show error to user
             }
 
-            // Then try to register face descriptor (non-blocking)
-            try {
-                const img = new Image()
-                img.src = photo
-                await new Promise(resolve => img.onload = resolve)
-                await registerFace(studentId, img)
-                console.log('Face enrollment successful')
-                info('Face enrolled successfully!')
-            } catch (faceErr) {
-                console.error('Face registration failed:', faceErr)
-                // Don't block - student can still use system, just won't have face login
-                showError('Face enrollment failed: ' + faceErr.message)
+            // Save pre-calculated face descriptor
+            if (faceDescriptorData) {
+                try {
+                    await faceStore.add({
+                        studentId,
+                        descriptor: faceDescriptorData,
+                        registeredAt: new Date().toISOString()
+                    })
+                    
+                    // Invalidate global face cache
+                    const { clearCache } = await import('../../services/faceRecognition')
+                    clearCache()
+
+                    console.log('Face enrollment successful')
+                    info('Face enrolled successfully!')
+                } catch (faceErr) {
+                    console.error('Face registration failed:', faceErr)
+                    showError('Face enrollment failed: ' + faceErr.message)
+                }
+            } else {
+                showError('Face not processed correctly. You may need to re-enroll face later.')
             }
 
             refresh()
