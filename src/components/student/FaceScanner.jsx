@@ -102,7 +102,9 @@ function FaceScanner() {
         let animationId
 
         const detect = async () => {
-            if (!streamRef.current || status === 'success' || status === 'error') return
+            // Only run the background detection loop when we are 'ready' to scan. 
+            // If we are 'scanning', we want the video element to be exclusively used by matchFace.
+            if (!streamRef.current || status !== 'ready') return
 
             try {
                 const detection = await detectFace(video)
@@ -111,7 +113,7 @@ function FaceScanner() {
                 // Ignore detection errors
             }
 
-            if (streamRef.current) {
+            if (streamRef.current && status === 'ready') {
                 animationId = requestAnimationFrame(detect)
             }
         }
@@ -137,6 +139,9 @@ function FaceScanner() {
             const video = videoRef.current
             let matchResult = null
             const MAX_ATTEMPTS = 8 // Try up to 8 frames across 4 seconds
+
+            // Wait 500ms initially as camera often shakes or loses focus when user clicks "Scan"
+            await new Promise(res => setTimeout(res, 500))
 
             for (let i = 0; i < MAX_ATTEMPTS; i++) {
                 setScanProgress(20 + (i * 10))
