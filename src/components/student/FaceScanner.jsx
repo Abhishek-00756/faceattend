@@ -4,7 +4,7 @@ import Layout from '../common/Layout'
 import { useAuth } from '../../context/AuthContext'
 import { useToast } from '../../context/ToastContext'
 import { useAttendance } from '../../context/AttendanceContext'
-import { loadModels, detectFace, matchFace, detectBlinks } from '../../services/faceRecognition'
+import { loadModels, detectFace, matchFace } from '../../services/faceRecognition'
 import { verifyFingerprint } from '../../services/webauthn'
 
 function FaceScanner() {
@@ -24,9 +24,6 @@ function FaceScanner() {
     const [faceDetected, setFaceDetected] = useState(false)
     const [scanProgress, setScanProgress] = useState(0)
     const [attemptCount, setAttemptCount] = useState(0)
-
-    const [blinkCount, setBlinkCount] = useState(0)
-    const [blinkTimeLeft, setBlinkTimeLeft] = useState(7)
 
     // Check for active session
     useEffect(() => {
@@ -131,44 +128,7 @@ function FaceScanner() {
     const handleScan = async () => {
         if (!faceDetected || !modelsReady || status !== 'ready') return
 
-        // --- Step 1: Blink Challenge ---
-        setStatus('blinking')
-        setBlinkCount(0)
-        setBlinkTimeLeft(7)
-        setMessage('👁️ Please blink naturally 2 times...')
-
-        const REQUIRED_BLINKS = 2
-        const BLINK_DURATION_MS = 7000
-
-        // Countdown timer
-        const timerInterval = setInterval(() => {
-            setBlinkTimeLeft(prev => {
-                if (prev <= 1) { clearInterval(timerInterval); return 0 }
-                return prev - 1
-            })
-        }, 1000)
-
-        let detectedBlinks = 0
-        try {
-            detectedBlinks = await detectBlinks(
-                videoRef.current,
-                BLINK_DURATION_MS,
-                (count) => setBlinkCount(count)
-            )
-        } catch (e) {
-            detectedBlinks = 0
-        }
-        clearInterval(timerInterval)
-
-        if (detectedBlinks < REQUIRED_BLINKS) {
-            setStatus('ready')
-            setBlinkCount(0)
-            setMessage(`Liveness check failed — only detected ${detectedBlinks} blink(s). Please blink naturally and try again.`)
-            showError('Anti-spoofing check failed. Please blink naturally.')
-            return
-        }
-
-        // --- Step 2: Face Match ---
+        // --- Step 1: Face Match ---
         setStatus('scanning')
         setMessage('Verifying identity...')
         setScanProgress(20)
@@ -313,13 +273,11 @@ function FaceScanner() {
                         <div className="text-center mb-lg">
                             <span className={`badge ${
                                 status === 'loading' ? 'badge-warning' :
-                                status === 'blinking' ? 'badge-primary' :
                                 status === 'scanning' ? 'badge-primary' :
                                 faceDetected ? 'badge-success' : 'badge-warning'
                             }`}>
                                 {status === 'loading' && '⏳ Loading...'}
                                 {status === 'ready' && (faceDetected ? '✓ Face Detected — Ready' : '⏳ Looking for face...')}
-                                {status === 'blinking' && `👁️ Blink ${blinkCount}/${2} detected — ${blinkTimeLeft}s left`}
                                 {status === 'scanning' && '🔍 Verifying...'}
                             </span>
                         </div>
@@ -391,25 +349,6 @@ function FaceScanner() {
                             {message}
                         </p>
 
-                        {/* Blink Challenge UI */}
-                        {status === 'blinking' && (
-                            <div className="text-center mt-lg p-md" style={{
-                                background: 'rgba(102,126,234,0.1)',
-                                borderRadius: 'var(--radius-lg)',
-                                border: '2px solid var(--primary-color)'
-                            }}>
-                                <div style={{ fontSize: '2.5rem', marginBottom: '0.5rem' }}>
-                                    {blinkCount >= 2 ? '✅' : blinkCount === 1 ? '😉' : '👀'}
-                                </div>
-                                <p className="font-semibold" style={{ margin: 0 }}>
-                                    Blink naturally — {blinkCount} of 2 detected
-                                </p>
-                                <p className="text-sm text-muted" style={{ margin: '0.25rem 0 0' }}>
-                                    Time remaining: {blinkTimeLeft}s
-                                </p>
-                            </div>
-                        )}
-
                         {/* Scan Button */}
                         <div className="flex justify-center mt-lg">
                             {status === 'ready' && (
@@ -423,10 +362,10 @@ function FaceScanner() {
                                 </button>
                             )}
 
-                            {(status === 'scanning' || status === 'blinking') && (
+                            {status === 'scanning' && (
                                 <button className="btn btn-primary btn-lg" disabled>
                                     <div className="spinner sm" style={{ marginRight: '0.5rem' }}></div>
-                                    {status === 'blinking' ? 'Checking liveness...' : 'Verifying...'}
+                                    Verifying...
                                 </button>
                             )}
                         </div>
@@ -464,7 +403,7 @@ function FaceScanner() {
                 )}
 
                 {/* Instructions */}
-                {(status === 'ready' || status === 'scanning' || status === 'blinking') && (
+                {(status === 'ready' || status === 'scanning') && (
                     <div
                         className="mt-lg p-md"
                         style={{
@@ -477,7 +416,6 @@ function FaceScanner() {
                             <li>Ensure good lighting on your face</li>
                             <li>Remove glasses if having issues</li>
                             <li>Look directly at the camera</li>
-                            <li>Blink naturally when prompted 👁️</li>
                         </ul>
                     </div>
                 )}
