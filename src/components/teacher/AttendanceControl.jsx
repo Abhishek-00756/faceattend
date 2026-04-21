@@ -6,7 +6,6 @@ import { useToast } from '../../context/ToastContext'
 import { useAttendance } from '../../context/AttendanceContext'
 import { studentStore, classStore, attendanceStore } from '../../services/storage'
 import { formatTime, formatDate, getRelativeTime } from '../../utils/helpers'
-import { getCurrentPosition, setCampusLocation } from '../../services/geolocation'
 
 function AttendanceControl() {
     const { user } = useAuth()
@@ -28,10 +27,6 @@ function AttendanceControl() {
     const [sessionTime, setSessionTime] = useState(0)
     const [liveAttendance, setLiveAttendance] = useState([])
 
-    // Location verification settings
-    const [requireLocation, setRequireLocation] = useState(true)
-    const [locationRadius, setLocationRadius] = useState(100) // meters
-    const [isCapturingLocation, setIsCapturingLocation] = useState(false)
 
     // Load classes
     useEffect(() => {
@@ -95,35 +90,14 @@ function AttendanceControl() {
 
     const handleStartSession = async () => {
         setIsLoading(true)
-        setIsCapturingLocation(true)
 
         try {
-            // Capture classroom location if location verification is enabled
-            if (requireLocation) {
-                info('📍 Capturing classroom location...')
-                try {
-                    const position = await getCurrentPosition()
-                    setCampusLocation(position.latitude, position.longitude, locationRadius)
-                    console.log('Classroom location set:', position, 'Radius:', locationRadius)
-                    success(`📍 Location captured! Students must be within ${locationRadius}m to mark attendance.`)
-                } catch (locErr) {
-                    console.error('Location capture failed:', locErr)
-                    showError('Could not capture location. Students can mark attendance from anywhere.')
-                    // Continue without location verification
-                    setCampusLocation(0, 0, 999999) // Disable location check
-                }
-            } else {
-                // Disable location verification
-                setCampusLocation(0, 0, 999999)
-            }
-
-            await startSession(selectedClass || 'all', sessionDuration, requireLocation)
+            await startSession(selectedClass || 'all', sessionDuration)
             success('Attendance session started! 🟢 Students can now mark attendance.')
         } catch (err) {
             showError(err.message)
         } finally {
             setIsLoading(false)
-            setIsCapturingLocation(false)
         }
     }
 
@@ -249,61 +223,7 @@ function AttendanceControl() {
                             </div>
                         </div>
 
-                        {/* Location Verification Settings */}
-                        <div className="mt-lg pt-md" style={{ borderTop: '1px dashed var(--border-color)' }}>
-                            <div className="flex items-center gap-md mb-md">
-                                <label className="flex items-center gap-sm" style={{ cursor: 'pointer' }}>
-                                    <input
-                                        type="checkbox"
-                                        checked={requireLocation}
-                                        onChange={(e) => setRequireLocation(e.target.checked)}
-                                        style={{ width: '18px', height: '18px', accentColor: 'var(--primary-color)' }}
-                                    />
-                                    <span className="font-medium">📍 Require Location Verification</span>
-                                </label>
-                            </div>
 
-                            {requireLocation && (
-                                <div
-                                    className="p-md"
-                                    style={{
-                                        background: 'rgba(102, 126, 234, 0.1)',
-                                        borderRadius: 'var(--radius-lg)',
-                                        border: '1px solid var(--primary-color)'
-                                    }}
-                                >
-                                    <p className="text-sm mb-md" style={{ margin: '0 0 0.75rem' }}>
-                                        <strong>How it works:</strong> Your current location will be captured as the classroom location.
-                                        Students must be within the specified radius to mark attendance.
-                                    </p>
-
-                                    <div className="form-group" style={{ margin: 0, maxWidth: '200px' }}>
-                                        <label className="form-label">Allowed Radius</label>
-                                        <select
-                                            className="form-input form-select"
-                                            value={locationRadius}
-                                            onChange={(e) => setLocationRadius(Number(e.target.value))}
-                                        >
-                                            <option value={25}>25 meters (strict)</option>
-                                            <option value={50}>50 meters</option>
-                                            <option value={100}>100 meters (recommended)</option>
-                                            <option value={200}>200 meters</option>
-                                            <option value={500}>500 meters (campus-wide)</option>
-                                        </select>
-                                    </div>
-
-                                    <p className="text-sm text-muted mt-sm" style={{ margin: '0.5rem 0 0' }}>
-                                        ⚠️ Make sure you're in the classroom when starting the session!
-                                    </p>
-                                </div>
-                            )}
-
-                            {!requireLocation && (
-                                <p className="text-warning text-sm" style={{ margin: 0 }}>
-                                    ⚠️ Students can mark attendance from any location.
-                                </p>
-                            )}
-                        </div>
 
                         {students.length === 0 && (
                             <div

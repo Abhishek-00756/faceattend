@@ -6,7 +6,6 @@ import { useToast } from '../../context/ToastContext'
 import { useAttendance } from '../../context/AttendanceContext'
 import { loadModels, detectFace, matchFace, detectBlinks } from '../../services/faceRecognition'
 import { verifyFingerprint } from '../../services/webauthn'
-import { isWithinCampus, getCampusLocation } from '../../services/geolocation'
 
 function FaceScanner() {
     const navigate = useNavigate()
@@ -19,13 +18,13 @@ function FaceScanner() {
     const canvasRef = useRef(null)
     const streamRef = useRef(null)
 
-    const [status, setStatus] = useState('loading') // loading, ready, blinking, scanning, success, error, no-session, out-of-range
+    const [status, setStatus] = useState('loading') // loading, ready, blinking, scanning, success, error, no-session
     const [message, setMessage] = useState('Initializing camera...')
     const [modelsReady, setModelsReady] = useState(false)
     const [faceDetected, setFaceDetected] = useState(false)
     const [scanProgress, setScanProgress] = useState(0)
     const [attemptCount, setAttemptCount] = useState(0)
-    const [locationInfo, setLocationInfo] = useState(null)
+
     const [blinkCount, setBlinkCount] = useState(0)
     const [blinkTimeLeft, setBlinkTimeLeft] = useState(7)
 
@@ -53,46 +52,6 @@ function FaceScanner() {
         try {
             await loadModels()
             setModelsReady(true)
-
-            // Check geolocation - get the campus location saved by teacher
-            const campusLocation = getCampusLocation()
-            console.log('Campus location:', campusLocation)
-
-            // Only check location if teacher set a valid location (radius < 10000m means it was intentionally set)
-            if (campusLocation && campusLocation.radius < 10000) {
-                setMessage('📍 Checking your location...')
-                info('Verifying your location...')
-
-                try {
-                    const locationCheck = await isWithinCampus()
-                    console.log('Location check result:', locationCheck)
-                    setLocationInfo(locationCheck)
-
-                    if (locationCheck.error) {
-                        setStatus('error')
-                        setMessage(`Location error: ${locationCheck.error}. Please enable location permissions.`)
-                        showError(`Location error: ${locationCheck.error}`)
-                        return
-                    }
-
-                    if (!locationCheck.isWithin) {
-                        setStatus('out-of-range')
-                        setMessage(`You are ${locationCheck.distance}m away from the classroom. You must be within ${locationCheck.allowedRadius}m to mark attendance.`)
-                        showError(`You are too far from the classroom (${locationCheck.distance}m away)`)
-                        return
-                    }
-
-                    success(`📍 Location verified! You are ${locationCheck.distance}m from classroom.`)
-                } catch (locErr) {
-                    console.error('Location check failed:', locErr)
-                    setStatus('error')
-                    setMessage(`Could not verify location: ${locErr.message}`)
-                    return
-                }
-            } else {
-                // No location verification required
-                info('Location verification not required for this session.')
-            }
 
             setMessage('Starting camera...')
             await startCamera()
@@ -345,53 +304,7 @@ function FaceScanner() {
                     </div>
                 )}
 
-                {/* Out of Range State */}
-                {status === 'out-of-range' && (
-                    <div className="attendance-status">
-                        <div className="status-icon error" style={{ fontSize: '3rem' }}>📍</div>
-                        <h2>Out of Range</h2>
-                        <p className="text-muted">
-                            You are too far from the classroom to mark attendance.
-                        </p>
 
-                        {locationInfo && (
-                            <div
-                                className="mt-lg p-md"
-                                style={{
-                                    background: 'rgba(220, 53, 69, 0.1)',
-                                    borderRadius: 'var(--radius-lg)',
-                                    border: '1px solid var(--error-color)'
-                                }}
-                            >
-                                <p style={{ margin: 0 }}>
-                                    <strong>Your distance:</strong> {locationInfo.distance}m
-                                </p>
-                                <p style={{ margin: '0.5rem 0 0' }}>
-                                    <strong>Maximum allowed:</strong> {locationInfo.allowedRadius}m
-                                </p>
-                            </div>
-                        )}
-
-                        <p className="text-sm text-muted mt-md">
-                            💡 Please move closer to the classroom and try again.
-                        </p>
-
-                        <div className="flex gap-md justify-center mt-lg">
-                            <button
-                                className="btn btn-secondary"
-                                onClick={() => navigate('/student')}
-                            >
-                                ← Back
-                            </button>
-                            <button
-                                className="btn btn-primary"
-                                onClick={initializeScanner}
-                            >
-                                🔄 Check Again
-                            </button>
-                        </div>
-                    </div>
-                )}
 
                 {/* Camera & Scanning UI */}
                 {(status === 'loading' || status === 'ready' || status === 'scanning') && !hasMarkedToday(user?.studentId) && (

@@ -27,11 +27,6 @@ export const FACE_CONFIG = {
     DETECTION_INTERVAL: 500 // ms between detections
 }
 
-// Geolocation config
-export const GEO_CONFIG = {
-    DEFAULT_RADIUS: 500, // meters
-    ENABLE_LOCATION_CHECK: false // Set to true to enable location verification
-}
 
 // Default classes/sections
 export const DEFAULT_CLASSES = [
@@ -83,6 +78,5 @@ export const CHART_COLORS = {
 // Local storage keys
 export const STORAGE_KEYS = {
     THEME: 'faceattend_theme',
-    USER: 'faceattend_user',
-    CAMPUS_LOCATION: 'campusLocation'
+    USER: 'faceattend_user'
 }
