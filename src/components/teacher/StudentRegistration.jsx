@@ -267,7 +267,7 @@ function StudentRegistration() {
             } catch (faceErr) {
                 console.error('Face registration failed:', faceErr)
                 // Don't block - student can still use system, just won't have face login
-                showError('Face enrollment failed. Student can still login but may need to re-enroll face later.')
+                showError('Face enrollment failed: ' + faceErr.message)
             }
 
             refresh()
