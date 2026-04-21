@@ -77,7 +77,7 @@ export async function registerFace(studentId, imageElement) {
         // Convert Float32Array to regular array for storage
         const descriptorArray = Array.from(descriptor)
 
-        await faceStore.update({
+        await faceStore.add({
             studentId,
             descriptor: descriptorArray,
             registeredAt: new Date().toISOString()
